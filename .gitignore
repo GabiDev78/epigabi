@@ -1,0 +1,10 @@
+# Binaries
+bin
+obj
+
+# Rider
+.idea
+*.userprefs
+
+
+
