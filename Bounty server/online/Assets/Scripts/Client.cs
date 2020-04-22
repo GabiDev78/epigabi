@@ -20,6 +20,10 @@ public class Client : MonoBehaviour
 
     public TCP tcp;
 
+    private delegate void PacketHandler(Packet _packet);
+    
+    private static Dictionary<int, PacketHandler> packetHandlers; 
+
     private void Awake()
     {
         if (instance == null)
@@ -51,6 +55,8 @@ public class Client : MonoBehaviour
     {
         public TcpClient socket;
 
+        private Packet receivedData;
+
         private NetworkStream stream;
 
         private byte[] receiveBuffer;
@@ -78,6 +84,8 @@ public class Client : MonoBehaviour
 
             stream = socket.GetStream();
 
+            receivedData = new Packet();
+
             stream.BeginRead(receiveBuffer, 0, BufferSize, ReceiveCallback, null);
         }
 
@@ -93,10 +101,12 @@ public class Client : MonoBehaviour
                 }
                 else
                 {
-                    byte[] data = new byte[byteLength];
-                    Array.Copy(receiveBuffer, data, byteLength);
+                    byte[] _data = new byte[byteLength];
+                    Array.Copy(receiveBuffer, _data, byteLength);
 
-                    // Next : handle the data received
+                    receivedData.Reset();
+                    receivedData.Reset(HandleData(_data));
+
                     stream.BeginRead(receiveBuffer, 0, BufferSize, ReceiveCallback, null);
                 }
             }
@@ -105,5 +115,60 @@ public class Client : MonoBehaviour
                 // Next : disconnect
             }
         }
+
+        private bool HandleData(byte[] _data)
+        {
+            int _packetLength = 0;
+
+            receivedData.SetBytes(_data);
+
+            if (receivedData.UnreadLength() >= 4)
+            {
+                _packetLength = receivedData.ReadInt();
+                if (_packetLength <= 0)
+                {
+                    return true;
+                }
+            }
+
+            while (_packetLength > 0 && _packetLength <= receivedData.UnreadLength())
+            {
+                byte[] _packetBytes = receivedData.ReadBytes(_packetLength);
+                ThreadManager.ExecuteOnMainThread(() =>
+                {
+                    using (Packet _packet = new Packet(_packetBytes))
+                    {
+                        int _packetId = _packet.ReadInt();
+                        packetHandlers[_packetId](_packet);
+                    }
+                });
+
+                _packetLength = 0;
+                if (receivedData.UnreadLength() >= 4)
+                {
+                    _packetLength = receivedData.ReadInt();
+                    if (_packetLength <= 0)
+                    {
+                        return true;
+                    }
+                }
+            }
+
+            if (_packetLength <= 1)
+            {
+                return true;
+            }
+
+            return false;
+        }
+    }
+
+    private void InitializeClientData()
+    {
+        packetHandlers = new Dictionary<int, PacketHandler>()
+        {
+            { (int)ServerPackets.welcome, ClientHandle.Welcome }
+        };
+        Debug.Log("Initalize packets");
     }
 }
